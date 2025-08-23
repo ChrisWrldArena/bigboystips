@@ -86,17 +86,20 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
     // Local storage keys
     const PENDING_PAYMENTS_KEY = 'pending_payments'
     const PAYMENT_RETRY_LIMIT = 5
-    const PAYMENT_POLL_INTERVAL = 10000 // 10 seconds
+    const PAYMENT_POLL_INTERVAL = 60_000 // 60 seconds
 
     // Helper functions for local storage
     const getPendingPayments = useCallback((): PendingPayment[] => {
-        try {
-            const stored = localStorage.getItem(PENDING_PAYMENTS_KEY)
-            return stored ? JSON.parse(stored) : []
-        } catch (error) {
-            console.error('Error getting pending payments:', error)
-            return []
+        if (typeof window !== 'undefined') {
+            try {
+                const stored = localStorage.getItem(PENDING_PAYMENTS_KEY)
+                return stored ? JSON.parse(stored) : []
+            } catch (error) {
+                console.error('Error getting pending payments:', error)
+                return []
+            }
         }
+        return []
     }, [])
 
     // Currency conversion helper function
@@ -234,6 +237,17 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
                     window.location.reload()
                 }, 2000)
 
+            } else if (verificationResult.status === 'pending') {
+                toast.success('Payment is pending. If you have finished paying, wait for a couple of minutes or refresh the page', {
+                    style: {
+                        backgroundColor: '#fff3cd',
+                        color: '#856404',
+                        border: '1px solid #ffeeba',
+                        borderRadius: '4px',
+                        padding: '12px 24px',
+                        cursor: 'pointer',
+                    }
+                })
             } else if (verificationResult.status === 'failed') {
                 // Payment failed
                 const failedPayment = {
@@ -267,7 +281,8 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
                     retryCount: pendingPayment.retryCount + 1
                 }
 
-                if (retryPayment.retryCount >= PAYMENT_RETRY_LIMIT) {
+                const isExpired = Date.now() - retryPayment.timestamp > 2 * 60 * 60 * 1000
+                if (retryPayment.retryCount >= PAYMENT_RETRY_LIMIT && isExpired) {
                     removePendingPayment(pendingPayment.txRef)
                     toast.error('Payment verification timeout. Please contact support.', {
                         style: {
@@ -476,7 +491,7 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
             currency: paymentCurrency,
             plan: plan,
             timestamp: Date.now(),
-            status: 'INITIATED', // Different status for pre-payment
+            status: 'PENDING', // Different status for pre-payment
             retryCount: 0
         }
 
@@ -512,7 +527,7 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
             subaccounts: [{
                 id: paymentKeys.FLW_SUBACCOUNT_ID
             }],
-            
+
             callback: async (response: { status: string; transaction_id: string; tx_ref: string;[key: string]: unknown }) => {
                 if (response.status === 'successful') {
                     console.log('Payment initiated:', response)
@@ -521,11 +536,11 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
                     const updatedPendingPayment: PendingPayment = {
                         ...pendingPayment,
                         transactionId: response.transaction_id.toString(),
-                        status: 'PENDING' // Update status to PENDING after successful initiation
+                        status: 'COMPLETED' // Update status to COMPLETED after successful initiation
                     }
 
                     // Update local storage with transaction ID
-                    savePendingPayment(updatedPendingPayment)
+                    //savePendingPayment(updatedPendingPayment)
 
                     toast.success('Payment initiated! Verifying transaction...', {
                         style: {
@@ -539,12 +554,12 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
                     })
 
                     // Start verification process immediately
-                    /* processPendingPayment(updatedPendingPayment)
+                    processPendingPayment(updatedPendingPayment)
 
                     setTimeout(() => {
                         processPendingPayment(updatedPendingPayment)
                     }, 60_000)
- */
+ 
                 } else {
                     console.log('Payment not successful:', response);
                     // Remove the pending payment if payment failed
@@ -1392,6 +1407,11 @@ const PricingComponent = ({ paymentKeys, content }: PricingComponentProps) => {
                 {!content.isSubscriptionActive && <h1 className="text-4xl font-bold mb-20 text-white">Choose Your Plan</h1>}
                 {content.isSubscriptionActive && <h1 className="text-4xl font-bold mb-20 text-white">Vip Predictions & Analysis</h1>}
                 {!content.isSubscriptionActive && <p className="text-2xl text-gray-600 text-center mt-32">Get access to premium predictions and expert analysis</p>}
+                {getPendingPayments().length > 0 && <button className="rounded-lg bg-oranege-600 text-white px-8 py-2 place-self-center hover:scale-105 transition-all delay-100 duration-300"
+                    onClick={() => {
+                        pollPendingPayments()
+                    }}
+                >Refresh Payment Status</button>}
             </div>
 
             {!content.isSubscriptionActive && <div className="w-full grid justify-center gap-8 max-w-7xl mx-auto my-16">
