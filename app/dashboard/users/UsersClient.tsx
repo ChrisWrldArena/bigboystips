@@ -1,25 +1,125 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 import { useDialog } from "@/app/components/shared/dialog";
-import { useAuth } from "@/app/contexts/AuthContext";
 import { User } from "@/app/lib/interface";
 import { Popover, PopoverContent, PopoverTrigger } from "@radix-ui/react-popover";
-import { Check, Edit, MoreVertical, Trash, User as EditUser } from "lucide-react";
+import { Edit, MoreVertical, Trash, User as EditUser, Search, Filter, ChevronDown, ChevronUp, X } from "lucide-react";
 import moment from "moment";
-import Image from "next/image";
 import Link from "next/link";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 
 const PAGE_SIZE = 50;
+
+type SortField = 'username' | 'email' | 'role' | 'createdAt' | 'emailVerified';
+type SortDirection = 'asc' | 'desc';
 
 const UsersClient = () => {
     const dialog = useDialog();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
-    const [updating, setUpdating] = useState(true);
-    const [currentPosition, setCurrentPosition] = useState<number>(-1);
+    const [_updating, setUpdating] = useState(true);
+    const [_currentPosition, setCurrentPosition] = useState<number>(-1);
     const [currentPage, setCurrentPage] = useState(1);
+    
+    // Search and filter states
+    const [searchTerm, setSearchTerm] = useState('');
+    const [roleFilter, setRoleFilter] = useState<string>('all');
+    const [emailVerifiedFilter, setEmailVerifiedFilter] = useState<string>('all');
+    const [sortField, setSortField] = useState<SortField>('createdAt');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+    
     const pageSize = PAGE_SIZE;
+
+    // Filter and sort users
+    const filteredUsers = useMemo(() => {
+        const filtered = users.filter(user => {
+            // Search filter
+            const matchesSearch = !searchTerm || 
+                user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                user.email?.toLowerCase().includes(searchTerm.toLowerCase());
+            
+            // Role filter
+            const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+            
+            // Email verified filter
+            const matchesEmailVerified = emailVerifiedFilter === 'all' || 
+                (emailVerifiedFilter === 'verified' && user.emailVerified) ||
+                (emailVerifiedFilter === 'unverified' && !user.emailVerified);
+            
+            return matchesSearch && matchesRole && matchesEmailVerified;
+        });
+
+        // Sort users
+        filtered.sort((a, b) => {
+            let aValue: string | number | Date | boolean = a[sortField];
+            let bValue: string | number | Date | boolean = b[sortField];
+            
+            if (sortField === 'createdAt') {
+                aValue = new Date(aValue as string | number | Date);
+                bValue = new Date(bValue as string | number | Date);
+            } else if (sortField === 'emailVerified') {
+                // For boolean values, true comes first in ascending order
+                aValue = aValue ? 1 : 0;
+                bValue = bValue ? 1 : 0;
+            } else if (typeof aValue === 'string' && typeof bValue === 'string') {
+                aValue = aValue.toLowerCase();
+                bValue = bValue.toLowerCase();
+            }
+            
+            if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+            if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        return filtered;
+    }, [users, searchTerm, roleFilter, emailVerifiedFilter, sortField, sortDirection]);
+
+    // Pagination
+    const totalPages = Math.ceil(filteredUsers.length / pageSize);
+    const paginatedUsers = filteredUsers.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize
+    );
+
+    // Sorting functions
+    const handleSort = (field: SortField) => {
+        if (sortField === field) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('asc');
+        }
+    };
+
+    // Clear filters
+    const clearFilters = () => {
+        setSearchTerm('');
+        setRoleFilter('all');
+        setEmailVerifiedFilter('all');
+        setCurrentPage(1);
+    };
+
+    // Sortable header component
+    const SortableHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
+        <th 
+            className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+            onClick={() => handleSort(field)}
+        >
+            <div className="flex items-center space-x-1">
+                <span>{children}</span>
+                {sortField === field && (
+                    sortDirection === 'asc' ? 
+                        <ChevronUp className="h-4 w-4" /> : 
+                        <ChevronDown className="h-4 w-4" />
+                )}
+            </div>
+        </th>
+    );
+
+    // Reset page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, roleFilter, emailVerifiedFilter]);
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -64,7 +164,7 @@ const UsersClient = () => {
     }
     const updateUser = async (index: number, user: User, data: string) => {
         setCurrentPosition(index);
-        const { id, ...dataWithoutId } = user;
+        const { id, ..._dataWithoutId } = user;
         dialog.showDialog({
             title: "Update user",
             message: `Are you sure you want to update this user to "${data}"?`,
@@ -76,7 +176,7 @@ const UsersClient = () => {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            ...dataWithoutId,
+                            //...dataWithoutId,
                             role: data,
                         }),
                     });
@@ -103,9 +203,6 @@ const UsersClient = () => {
         })
     }
 
-    const totalPages = Math.ceil(users.length / pageSize);
-    const paginatedusers = users.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
     return (
         <div className="p-4 bg-white">
             <div className="sticky top-0 flex items-center justify-between bg-white border-b border-gray-200 z-10">
@@ -125,18 +222,85 @@ const UsersClient = () => {
                     </Link>
                 </div>
             </div>
+            
+            {/* Search and Filters */}
+            <div className="mt-6 space-y-4">
+                {/* Search Bar */}
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                        type="text"
+                        placeholder="Search by username or email..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                    {searchTerm && (
+                        <button
+                            onClick={() => setSearchTerm('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    )}
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-wrap gap-4 items-center">
+                    <div className="flex items-center gap-2">
+                        <Filter className="h-4 w-4 text-gray-500" />
+                        <span className="text-sm text-gray-700">Filters:</span>
+                    </div>
+                    
+                    <select
+                        value={roleFilter}
+                        onChange={(e) => setRoleFilter(e.target.value)}
+                        className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    >
+                        <option value="all">All Roles</option>
+                        <option value="ADMIN">Admin</option>
+                        <option value="USER">User</option>
+                    </select>
+
+                    <select
+                        value={emailVerifiedFilter}
+                        onChange={(e) => setEmailVerifiedFilter(e.target.value)}
+                        className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    >
+                        <option value="all">All Verification Status</option>
+                        <option value="verified">Verified</option>
+                        <option value="unverified">Unverified</option>
+                    </select>
+
+                    {(searchTerm || roleFilter !== 'all' || emailVerifiedFilter !== 'all') && (
+                        <button
+                            onClick={clearFilters}
+                            className="px-3 py-1 text-sm text-orange-600 hover:text-orange-800 underline"
+                        >
+                            Clear Filters
+                        </button>
+                    )}
+                </div>
+
+                {/* Results Count */}
+                <div className="text-sm text-gray-600">
+                    Showing {paginatedUsers.length} of {filteredUsers.length} users
+                    {filteredUsers.length !== users.length && ` (filtered from ${users.length} total)`}
+                </div>
+            </div>
+
             <div className="mt-8 flex flex-col">
                 <div className="overflow-x-auto  ring-1 ring-neutral-300 ring-opacity-5 md:rounded-lg">
                     <table className="min-w-full divide-y divide-gray-300">
                         <thead className="bg-gray-50">
                             <tr>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email Address</th>
+                                <SortableHeader field="username">Username</SortableHeader>
+                                <SortableHeader field="email">Email Address</SortableHeader>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Country Info</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email Verified</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                                <SortableHeader field="emailVerified">Email Verified</SortableHeader>
+                                <SortableHeader field="role">Role</SortableHeader>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subscription</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member since</th>
+                                <SortableHeader field="createdAt">Member since</SortableHeader>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                             </tr>
                         </thead>
@@ -144,11 +308,11 @@ const UsersClient = () => {
                             {loading ? (
                                 <tr className="w-full">
                                     <td colSpan={7} className="text-center py-8 text-gray-500">Loading users...</td></tr>
-                            ) : users.length === 0 ? (
+                            ) : filteredUsers.length === 0 ? (
                                 <tr className="w-full">
                                     <td colSpan={7} className="text-center py-8 text-gray-500">No users found.</td></tr>
                             ) : (
-                                paginatedusers.map((user, i) => {
+                                paginatedUsers.map((user, i) => {
                                     const location = user.location ? JSON.parse(user.location) : {};
                                     return (
                                         <tr key={user.id}>
@@ -233,7 +397,7 @@ const UsersClient = () => {
                     </table>
 
                     {/* Pagination */}
-                    {users.length > 0 && (
+                    {filteredUsers.length > 0 && totalPages > 1 && (
                         <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 flex items-center justify-between">
                             <button
                                 className="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50"
